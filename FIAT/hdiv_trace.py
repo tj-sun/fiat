@@ -19,6 +19,7 @@ from __future__ import absolute_import, print_function, division
 
 import numpy as np
 from FIAT.discontinuous_lagrange import DiscontinuousLagrange
+from FIAT.point_element import PointElement
 from FIAT.reference_element import ufc_simplex
 from FIAT.functional import PointEvaluation
 from FIAT.polynomial_set import mis
@@ -50,11 +51,19 @@ class HDivTrace(FiniteElement):
 
     def __init__(self, ref_el, degree):
         sd = ref_el.get_spatial_dimension()
-        if sd in (0, 1):
-            raise ValueError("Cannot use this trace class on a %d-dimensional cell." % sd)
+        assert sd > 0, (
+            "Cannot take the trace of a 0-dimensional cell"
+        )
 
         # Constructing facet element as a discontinuous Lagrange element
-        dglagrange = DiscontinuousLagrange(ufc_simplex(sd - 1), degree)
+        # or a PointElement
+        if sd == 1:
+            assert degree == 0, (
+                "Only constants can be defined on point-facets"
+            )
+            dg_element = PointElement()
+        else:
+            dg_element = DiscontinuousLagrange(ufc_simplex(sd - 1), degree)
 
         # Construct entity ids (assigning top. dim. and initializing as empty)
         entity_dofs = {}
@@ -68,13 +77,13 @@ class HDivTrace(FiniteElement):
                 entity_dofs[top_dim][entity] = []
 
         # Filling in entity ids and generating points for dual basis
-        nf = dglagrange.space_dimension()
+        nf = dg_element.space_dimension()
         points = []
         num_facets = sd + 1
         for f in range(num_facets):
             entity_dofs[sd - 1][f] = range(f * nf, (f + 1) * nf)
 
-            for dof in dglagrange.dual_basis():
+            for dof in dg_element.dual_basis():
                 facet_point = list(dof.get_point_dict().keys())[0]
                 transform = ref_el.get_entity_transform(sd - 1, f)
                 points.append(tuple(transform(facet_point)))
@@ -83,10 +92,12 @@ class HDivTrace(FiniteElement):
         nodes = [PointEvaluation(ref_el, pt) for pt in points]
         dual = dual_set.DualSet(nodes, ref_el, entity_dofs)
 
-        super(HDivTrace, self).__init__(ref_el, dual, dglagrange.get_order(),
-                                        dglagrange.get_formdegree(), dglagrange.mapping()[0])
+        super(HDivTrace, self).__init__(ref_el, dual,
+                                        dg_element.get_order(),
+                                        dg_element.get_formdegree(),
+                                        dg_element.mapping()[0])
         # Set up facet element
-        self.facet_element = dglagrange
+        self.facet_element = dg_element
 
         # degree for quadrature rule
         self.polydegree = degree
@@ -98,12 +109,12 @@ class HDivTrace(FiniteElement):
     def get_nodal_basis(self):
         """Return the nodal basis, encoded as a PolynomialSet object,
         for the finite element."""
-        raise NotImplementedError("get_nodal_basis not implemented for the trace element.")
+        raise NotImplementedError("Not implemented for the trace element.")
 
     def get_coeffs(self):
         """Return the expansion coefficients for the basis of the
         finite element."""
-        raise NotImplementedError("get_coeffs not implemented for the trace element.")
+        raise NotImplementedError("Not implemented for the trace element.")
 
     def tabulate(self, order, points, entity=None):
         """Return tabulated values of derivatives up to a given order of
@@ -148,22 +159,26 @@ class HDivTrace(FiniteElement):
             # If successful, insert evaluations
             if success:
                 # Map points to the reference facet
-                new_points = map_to_reference_facet(points, vertices, unique_facet)
+                new_points = map_to_reference_facet(points,
+                                                    vertices,
+                                                    unique_facet)
 
-                # Retrieve values by tabulating the DiscontinuousLagrange element
+                # Retrieve values by tabulating the dg facet element
                 nonzerovals = list(self.facet_element.tabulate(order, new_points).values())[0]
                 phivals[evalkey][nf*unique_facet:nf*(unique_facet + 1), :] = nonzerovals
             # Otherwise, return NaNs
             else:
                 for key in phivals.keys():
-                    phivals[key] = np.full(shape=(sdim, len(points)), fill_value=np.nan)
+                    phivals[key] = np.full(shape=(sdim, len(points)),
+                                           fill_value=np.nan)
 
             return phivals
 
         entity_dim, entity_id = entity
 
-        # If the user is directly specifying cell-wise tabulation, return TraceErrors in dict for
-        # appropriate handling in the form compiler
+        # If the user is directly specifying cell-wise tabulation,
+        # return TraceErrors in dict for appropriate handling in
+        # the form compiler
         if entity_dim != facet_dim:
             for key in phivals.keys():
                 phivals[key] = TraceError("Attempting to tabulate a %d-entity. Expecting a %d-entitiy" % (entity_dim, facet_dim))
@@ -174,11 +189,12 @@ class HDivTrace(FiniteElement):
             nonzerovals = list(self.facet_element.tabulate(0, points).values())[0]
             phivals[evalkey][nf*entity_id:nf*(entity_id + 1), :] = nonzerovals
 
-            # If asking for gradient evaluations, insert TraceError in gradient evaluations
+            # If asking for gradient evaluations,
+            # insert TraceError in gradient evaluations
             if order > 0:
                 for key in phivals.keys():
                     if key != evalkey:
-                        phivals[key] = TraceError("Gradient evaluations are illegal on trace elements.")
+                        phivals[key] = TraceError("Gradient evaluations are illegal on trace elements")
             return phivals
 
     def value_shape(self):
@@ -188,18 +204,19 @@ class HDivTrace(FiniteElement):
     def dmats(self):
         """Return dmats: expansion coefficients for basis function
         derivatives."""
-        raise NotImplementedError("dmats not implemented for the trace element.")
+        raise NotImplementedError("Not implemented for the trace element.")
 
     def get_num_members(self, arg):
         """Return number of members of the expansion set."""
-        raise NotImplementedError("get_num_members not implemented for the trace element.")
+        raise NotImplementedError("Not implemented for the trace element.")
 
 
 # The following functions are credited to Marie E. Rognes:
 def extract_unique_facet(coordinates, tolerance=epsilon):
-    """Determines whether a set of points (described in its barycentric coordinates)
-    are all on one of the facet sub-entities, and return the particular facet and
-    whether the search has been successful.
+    """Determines whether a set of points (described in its
+    barycentric coordinates) are all on one of the facet sub-entities,
+    and return the particular facet and whether the search has been
+    successful.
 
     :arg coordinates: A set of points described in barycentric coordinates.
     :arg tolerance: A fixed tolerance for geometric identifications.
@@ -253,20 +270,22 @@ def map_from_reference_facet(point, vertices):
     :arg vertices: The vertices defining the physical element.
     """
 
-    # Compute the barycentric coordinates of the point relative to the reference facet
+    # Compute the barycentric coordinates of the point relative
+    # to the reference facet
     reference_simplex = ufc_simplex(len(vertices) - 1)
     reference_vertices = reference_simplex.get_vertices()
     coords = barycentric_coordinates([point, ], reference_vertices)[0]
 
-    # Evaluates the physical coordinate of the point using barycentric coordinates
+    # Evaluates the physical coordinate of the point using
+    # barycentric coordinates
     point = sum(vertices[j] * coords[j] for j in range(len(coords)))
     return tuple(point)
 
 
 def map_to_reference_facet(points, vertices, facet):
-    """Given a set of points and vertices describing a facet of a simplex in n-dimensional
-    coordinates (where the points lie on the facet), map the points to the reference simplex
-    of dimension (n-1).
+    """Given a set of points and vertices describing a facet of a
+    simplex in n-dimensional coordinates (where the points lie on
+    the facet), map the points to the reference simplex of dimension (n-1).
 
     :arg points: A set of points in n-D.
     :arg vertices: A set of vertices describing a facet of a simplex in n-D.
@@ -287,7 +306,8 @@ def map_to_reference_facet(points, vertices, facet):
         # which facet we are on
         new_coords = [coords[j] for j in range(len(coords)) if j != facet]
 
-        # Evaluate the reference coordinate of a point in barycentric coordinates
+        # Evaluate the reference coordinate of a point in
+        # barycentric coordinates
         reference_pt = sum(np.asarray(reference_vertices[j]) * new_coords[j]
                            for j in range(len(new_coords)))
 
