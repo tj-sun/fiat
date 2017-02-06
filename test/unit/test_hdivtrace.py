@@ -26,6 +26,24 @@ import pytest
 import numpy as np
 
 
+@pytest.mark.parametrize("facet_id", (0, 1))
+def test_interval_trace(facet_id):
+    """Tests that tabulating the trace of an iterval produces
+    the expected results.
+    """
+    from FIAT import ufc_simplex, HDivTrace
+
+    ref_el = ufc_simplex(1)
+    fiat_element = HDivTrace(ref_el, 0)
+    nf = fiat_element.facet_element.space_dimension()
+
+    zero_dim_pts = [() for _ in range(3)]
+    tab = fiat_element.tabulate(0, zero_dim_pts, (0, facet_id))[(0,)][nf*facet_id:nf*(facet_id + 1)]
+
+    ref = np.ones(len(zero_dim_pts))
+    assert np.allclose(tab, ref)
+
+
 @pytest.mark.parametrize("dim", (2, 3))
 @pytest.mark.parametrize("degree", range(7))
 def test_basis_values(dim, degree):
