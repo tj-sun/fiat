@@ -22,6 +22,7 @@ from __future__ import absolute_import, print_function, division
 import numpy
 from FIAT.finite_element import FiniteElement
 from FIAT.reference_element import TensorProductCell
+from FIAT.hdiv_trace import TraceError
 from FIAT.polynomial_set import mis
 from FIAT import dual_set
 from FIAT import functional
@@ -297,6 +298,10 @@ class TensorProductElement(FiniteElement):
                     # We now have temp[point][full basis function]
                     # Transpose this to get temp[bf][point],
                     # and we are done.
+                    if isinstance(Atab[alpha[0:Asdim]], TraceError):
+                        Atab = Atab[alpha[0:Asdim]].zero_tab
+                    if isinstance(Btab[alpha[Asdim:Asdim+Bsdim]], TraceError):
+                        Btab = Btab[alpha[Asdim:Asdim+Bsdim]].zero_tab
                     temp = numpy.array([numpy.outer(
                                        Atab[alpha[0:Asdim]][..., j],
                                        Btab[alpha[Asdim:Asdim+Bsdim]][..., j])

@@ -34,9 +34,10 @@ class TraceError(Exception):
     """Exception caused by tabulating a trace element on the interior of a cell,
     or the gradient of a trace element."""
 
-    def __init__(self, msg):
+    def __init__(self, msg, zero_tab):
         super(TraceError, self).__init__(msg)
         self.msg = msg
+        self.zero_tab = zero_tab
 
 
 class HDivTrace(FiniteElement):
@@ -147,6 +148,7 @@ class HDivTrace(FiniteElement):
             for alpha in alphas:
                 phivals[alpha] = np.zeros(shape=(sdim, len(points)))
         evalkey = (0,) * (facet_dim + 1)
+        zero_tab = phivals.copy()
 
         # If entity is None, identify facet using numerical tolerance and
         # return the tabulated values
@@ -181,7 +183,7 @@ class HDivTrace(FiniteElement):
         # the form compiler
         if entity_dim != facet_dim:
             for key in phivals.keys():
-                phivals[key] = TraceError("Attempting to tabulate a %d-entity. Expecting a %d-entitiy" % (entity_dim, facet_dim))
+                phivals[key] = TraceError("Attempting to tabulate a %d-entity. Expecting a %d-entitiy" % (entity_dim, facet_dim), zero_tab)
             return phivals
 
         else:
@@ -194,7 +196,7 @@ class HDivTrace(FiniteElement):
             if order > 0:
                 for key in phivals.keys():
                     if key != evalkey:
-                        phivals[key] = TraceError("Gradient evaluations are illegal on trace elements")
+                        phivals[key] = TraceError("Gradient evaluations are illegal on trace elements", zero_tab)
             return phivals
 
     def value_shape(self):
