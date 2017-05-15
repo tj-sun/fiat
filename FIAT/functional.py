@@ -27,6 +27,15 @@ from collections import OrderedDict
 from itertools import chain
 import numpy
 import sympy
+import pymbolic
+
+
+class Differentiator(pymbolic.mapper.differentiator.DifferentiationMapper):
+
+    # Derivative of list is just list of derivative of entries
+    def map_list(self, expr):
+        return [self.rec(x) for x in expr]
+
 
 
 def index_iterator(shp):
@@ -196,9 +205,9 @@ class PointDerivative(Functional):
     def to_riesz(self, poly_set):
         x = list(self.deriv_dict.keys())[0]
 
-        X = sympy.DeferredVector('x')
-        dx = numpy.asarray([X[i] for i in range(len(x))])
+        X = pymbolic.primitives.Variable('x')
 
+        dx = numpy.asarray([X[i] for i in range(len(x))])
         es = poly_set.get_expansion_set()
         ed = poly_set.get_embedded_degree()
 
@@ -206,10 +215,13 @@ class PointDerivative(Functional):
 
         # Expand the multi-index as a series of variables to
         # differentiate with respect to.
-        dvars = tuple(d for d, a in zip(dx, self.alpha)
-                      for count in range(a))
-
-        return numpy.asarray([sympy.lambdify(X, sympy.diff(b, *dvars))(x)
+        def diff(expr):
+            for dvar, count in zip(dx, self.alpha):
+                d = Differentiator(dvar)
+                for i in range(count):
+                    expr = d(expr)
+            return expr
+        return numpy.asarray([pymbolic.evaluate(diff(b), {'x': x})
                               for b in bfs])
 
 
@@ -228,6 +240,23 @@ class PointNormalDerivative(Functional):
         dpt_dict = {pt: [(n[i], alphas[i], tuple()) for i in range(sd)]}
 
         Functional.__init__(self, ref_el, tuple(), {}, dpt_dict, "PointNormalDeriv")
+
+    def to_riesz(self, poly_set):
+        x = list(self.deriv_dict.keys())[0]
+
+        X = pymbolic.primitives.Variable('x')
+        dx = numpy.asarray([X[i] for i in range(len(x))])
+
+        es = poly_set.get_expansion_set()
+        ed = poly_set.get_embedded_degree()
+
+        bfs = es.tabulate(ed, [dx])[:, 0]
+
+        # We need the gradient dotted with the normal.
+        return numpy.asarray(
+            pymbolic.evaluate([sum(Differentiator(dxi)(b)*ni for dxi, ni in zip(dx, self.n))
+                               for b in bfs],
+                              {'x': x}))
 
 
 class IntegralMoment(Functional):
