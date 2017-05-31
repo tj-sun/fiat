@@ -56,6 +56,8 @@ class MorleyDualSet(dual_set.DualSet):
             entity_ids[1][e] = [cur]
             cur += 1
 
+        entity_ids[2] = {0: []}
+
         super(MorleyDualSet, self).__init__(nodes, ref_el, entity_ids)
 
 
