@@ -349,7 +349,7 @@ def barycentric_coordinates(points, vertices):
 
     # Form mapping matrix
     last = np.asarray(vertices[-1])
-    T = np.matrix([np.array(v) - last for v in vertices[:-1]]).T
+    T = np.vstack([np.array(v) - last for v in vertices[:-1]]).T
     invT = np.linalg.inv(T)
 
     # Compute the barycentric coordinates for all points
